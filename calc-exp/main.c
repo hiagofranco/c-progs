@@ -23,11 +23,25 @@ int c_weight(int operator)
 	}
 }
 
-int main(void) {
-
-	struct token *t_list = NULL;
+int add_token_to_list(struct token **list, int *list_count, int number, char is_operator)
+{
 	struct token *t_tmp;
 
+	t_tmp = realloc(*list, (*list_count + 1) * sizeof(struct token));
+	if (!t_tmp)
+		return -1;
+
+	*list = t_tmp;
+	(*list)[*list_count].data = number;
+	(*list)[*list_count].is_operator = is_operator;
+	(*list_count)++;
+
+	return 0;
+}
+
+int main(void)
+{
+	struct token *t_list = NULL;
 	struct token *t_output = NULL;
 	struct node *stack = NULL;
 
@@ -43,7 +57,6 @@ int main(void) {
 	}
 
 	/* Step2: Convert input to list of tokens */
-
 	while(input[i] != '\n' && input[i] != '\0') {
 		if (input[i] == ' ') {
 			i++;
@@ -54,17 +67,11 @@ int main(void) {
 				number = number * 10 + (input[i] - '0');
 				i++;
 			}
-			t_tmp = realloc(t_list, (t_list_count + 1) * sizeof(struct token));
-			if (!t_tmp) {
-				if (t_list)
-					free(t_list);
+			if (add_token_to_list(&t_list, &t_list_count, number, 0) < 0) {
 				fprintf(stderr, "ERROR: could not allocate token \'%d\'.\n", number);
+				free(t_list);
 				return -1;
 			}
-			t_list = t_tmp;
-			t_list[t_list_count].data = number;
-			t_list[t_list_count].is_operator = 0;
-			t_list_count++;
 			number = 0;
 		}
 		else {
@@ -75,19 +82,11 @@ int main(void) {
 				case '/':
 				case '(':
 				case ')':
-					t_tmp = realloc(t_list, (t_list_count + 1) * sizeof(struct token));
-					if (!t_tmp) {
-						if (t_list)
-							free(t_list);
+					if (add_token_to_list(&t_list, &t_list_count, input[i], 1) < 0) {
+						free(t_list);
 						fprintf(stderr, "ERROR: could not allocate token \'%c\'.\n", input[i]);
 						return -1;
 					}
-
-					t_list = t_tmp;
-					t_list[t_list_count].data = input[i];
-					t_list[t_list_count].is_operator = 1;
-					t_list_count++;
-
 					break;
 				default:
 					fprintf(stderr, "ERROR: invalid char \'%c\'.\n", input[i]);
@@ -105,15 +104,10 @@ int main(void) {
 	/*  Step 3: Convert tokens list to RPN (reverse polish notation) */
 	for (i = 0; i < t_list_count; i++) {
 		if (!t_list[i].is_operator) {
-			t_tmp = realloc(t_output, (t_output_count + 1) * sizeof(struct token));
-			if (!t_tmp) {
-				fprintf(stderr, "ERROR: could not allocate token for output list.\n");
+			if (add_token_to_list(&t_output, &t_output_count, t_list[i].data, 0) < 0) {
+				fprintf(stderr, "ERROR: could not allocate output token.\n");
 				goto error_out;
 			}
-			t_output = t_tmp;
-			t_output[t_output_count].data = t_list[i].data;
-			t_output[t_output_count].is_operator = 0;
-			t_output_count++;
 		}
 		else {
 			if (t_list[i].data == '(') {
@@ -124,44 +118,30 @@ int main(void) {
 			}
 			else if (t_list[i].data == ')') {
 				while (1) {
-					popped_op = s_pop(&stack);
-					if (popped_op < 0) {
+					if (s_pop(&stack, &popped_op) < 0) {
 						fprintf(stderr, "ERROR: trying to pop empty stack.\n");
 						goto error_out;
 					}
 					if (popped_op == '(')
 						break;
 
-					t_tmp = realloc(t_output, (t_output_count + 1) * sizeof(struct token));
-					if (!t_tmp) {
-						fprintf(stderr, "ERROR: could not allocate token for output list.\n");
+					if (add_token_to_list(&t_output, &t_output_count, popped_op, 1) < 0) {
+						fprintf(stderr, "ERROR: could not allocate output token.\n");
 						goto error_out;
 					}
-					t_output = t_tmp;
-					t_output[t_output_count].data = popped_op;
-					t_output[t_output_count].is_operator = 1;
-					t_output_count++;
 				}
 			}
 			else {
-				peek = s_peek(&stack);
-
-				if (c_weight(peek) >= c_weight(t_list[i].data)) {
-					popped_op = s_pop(&stack);
-					if (popped_op < 0) {
+				while (!s_peek(&stack, &peek) && c_weight(peek) >= c_weight(t_list[i].data)) {
+					if (s_pop(&stack, &popped_op) < 0) {
 						fprintf(stderr, "ERROR: trying to pop empty stack.\n");
 						goto error_out;
 					}
 
-					t_tmp = realloc(t_output, (t_output_count + 1) * sizeof(struct token));
-					if (!t_tmp) {
-						fprintf(stderr, "ERROR: could not allocate token for output list.\n");
+					if (add_token_to_list(&t_output, &t_output_count, popped_op, 1) < 0) {
+						fprintf(stderr, "ERROR: could not allocate output token.\n");
 						goto error_out;
 					}
-					t_output = t_tmp;
-					t_output[t_output_count].data = popped_op;
-					t_output[t_output_count].is_operator = 1;
-					t_output_count++;
 				}
 
 				if (s_push(&stack, t_list[i].data) < 0) {
@@ -174,21 +154,14 @@ int main(void) {
 
 	/* If there is anything still left on stack, put in output list of tokens */
 	while (stack != NULL) {
-		popped_op = s_pop(&stack);
-		if (popped_op < 0) {
+		if (s_pop(&stack, &popped_op) < 0) {
 			fprintf(stderr, "ERROR: trying to pop empty stack.\n");
 			goto error_out;
 		}
-
-		t_tmp = realloc(t_output, (t_output_count + 1) * sizeof(struct token));
-		if (!t_tmp) {
-			fprintf(stderr, "ERROR: could not allocate token for output list.\n");
+		if (add_token_to_list(&t_output, &t_output_count, popped_op, 1) < 0) {
+			fprintf(stderr, "ERROR: could not allocate output token.\n");
 			goto error_out;
 		}
-		t_output = t_tmp;
-		t_output[t_output_count].data = popped_op;
-		t_output[t_output_count].is_operator = 1;
-		t_output_count++;
 	}
 
 	/*  Step 4: Solve RPN */
@@ -202,9 +175,7 @@ int main(void) {
 			}
 		}
 		else {
-			operand2 = s_pop(&stack);
-			operand1 = s_pop(&stack);
-			if (operand1 < 0 || operand2 < 0) {
+			if (s_pop(&stack, &operand2) < 0 || s_pop(&stack, &operand1) < 0) {
 				fprintf(stderr, "ERROR: trying to pop empty stack.\n");
 				goto error_out;
 			}
@@ -220,6 +191,7 @@ int main(void) {
 					break;
 				default:
 					fprintf(stderr, "ERROR: operator not supported.\n");
+					goto error_out;
 					break;
 			}
 			if (s_push(&stack, result) < 0) {
@@ -229,21 +201,22 @@ int main(void) {
 		}
 	}
 
-	printf("Result = %d\n", s_pop(&stack));
+	if (s_pop(&stack, &result) < 0) {
+		fprintf(stderr, "ERROR: trying to pop empty stack.\n");
+		goto error_out;
+	}
+	printf("Result = %d\n", result);
 
-	if (t_output)
-		free(t_output);
-	if (t_list)
-		free(t_list);
+	free(t_output);
+	free(t_list);
 	s_free(&stack);
 
 	return 0;
 
 error_out:
-	if (t_output)
-		free(t_output);
-	if (t_list)
-		free(t_list);
+	free(t_output);
+	free(t_list);
 	s_free(&stack);
+
 	return -1;
 }
